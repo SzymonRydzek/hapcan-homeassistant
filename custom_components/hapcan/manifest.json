@@ -1,11 +1,11 @@
 {
-    "domain": "hapcan",
-    "name": "hapcan",
-    "documentation": "https://tbd",
-    "issue_tracker": "https://tbd",
-    "codeowners": ["@Szymon"],
-    "dependencies": [],
-    "requirements": [],
-    "version": "0.0.1",
-    "iot_class": "local_polling"
-  }
+  "domain": "hapcan",
+  "name": "HAPCAN",
+  "codeowners": ["@SzymonRydzek"],
+  "dependencies": [],
+  "documentation": "https://github.com/SzymonRydzek/hapcan-homeassistant",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/SzymonRydzek/hapcan-homeassistant/issues",
+  "requirements": [],
+  "version": "0.2.0"
+}

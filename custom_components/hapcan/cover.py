@@ -212,11 +212,11 @@ class HapcanCover(HapcanEntity, CoverEntity, RestoreEntity):
     async def _pulse(self, channel: int) -> None:
         self._own_pulse_until[channel] = time.monotonic() + OWN_PULSE_WINDOW
         await self._send(
-            protocol.relay_control_frame(protocol.RELAY_ON, channel, self.node, self.group)
+            protocol.relay_control_frame(protocol.RELAY_ON, channel, self.node, self.module_group)
         )
         await asyncio.sleep(PULSE_SECONDS)
         await self._send(
-            protocol.relay_control_frame(protocol.RELAY_OFF, channel, self.node, self.group)
+            protocol.relay_control_frame(protocol.RELAY_OFF, channel, self.node, self.module_group)
         )
 
     # --- bus frames from wall buttons -------------------------------------

@@ -24,7 +24,7 @@ class HapcanEntity(Entity):
     def __init__(self, hub: HapcanHub, name: str, node: int, group: int) -> None:
         self.hub = hub
         self.node = node
-        self.group = group
+        self.module_group = group
         self._attr_name = name
 
     @property
@@ -39,11 +39,11 @@ class HapcanEntity(Entity):
         self.async_on_remove(
             async_dispatcher_connect(self.hass, SIGNAL_CONNECTION, self._connection_change)
         )
-        await self.hub.async_register_module(self.node, self.group)
+        await self.hub.async_register_module(self.node, self.module_group)
 
     @callback
     def _relay_status(self, status: RelayStatus) -> None:
-        if status.node == self.node and status.group == self.group:
+        if status.node == self.node and status.group == self.module_group:
             self.handle_relay_status(status)
 
     @callback

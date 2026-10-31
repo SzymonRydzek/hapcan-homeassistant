@@ -77,10 +77,10 @@ class HapcanLight(HapcanEntity, LightEntity):
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         await self._send(
-            protocol.relay_control_frame(protocol.RELAY_ON, self.channel, self.node, self.group)
+            protocol.relay_control_frame(protocol.RELAY_ON, self.channel, self.node, self.module_group)
         )
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         await self._send(
-            protocol.relay_control_frame(protocol.RELAY_OFF, self.channel, self.node, self.group)
+            protocol.relay_control_frame(protocol.RELAY_OFF, self.channel, self.node, self.module_group)
         )

@@ -12,6 +12,10 @@ UP = 1
 DOWN = -1
 IDLE = 0
 
+# Assumed full-travel time while the real one is not configured. Long enough
+# for any blind, so a movement is treated as running until it surely ended.
+FALLBACK_TRAVEL = 60.0
+
 
 class BlindModel:
     """Tracks where a blind is, based on which pulses were sent and when."""
@@ -39,11 +43,19 @@ class BlindModel:
     def can_stop(self) -> bool:
         return self.stop_method in (STOP_OPPOSITE, STOP_SAME)
 
+    def _travel(self, direction: int) -> float:
+        configured = self.travel_up if direction == UP else self.travel_down
+        return configured or FALLBACK_TRAVEL
+
     def position(self, now: float) -> float | None:
-        """Current position, or None while it is unknown."""
-        if self.direction == IDLE or not self.has_travel_times:
+        """Current position, or None while it is unknown.
+
+        Without configured travel times this is only a rough estimate used for
+        open/closed state; it is not shown as a percentage.
+        """
+        if self.direction == IDLE:
             return self._position
-        travel = self.travel_up if self.direction == UP else self.travel_down
+        travel = self._travel(self.direction)
         moved = (now - self._start_time) / travel * 100
         pos = self._start_pos + moved * self.direction
         return max(0.0, min(100.0, pos))
@@ -54,11 +66,6 @@ class BlindModel:
 
     def start(self, direction: int, now: float) -> None:
         """A movement in ``direction`` began at ``now``."""
-        if not self.has_travel_times:
-            # No timing: assume it simply ends at the end stop.
-            self.direction = IDLE
-            self._position = 100.0 if direction == UP else 0.0
-            return
         current = self.position(now)
         if current is None:
             # Unknown start: assume the far end, so the blind is in sync
@@ -107,5 +114,5 @@ class BlindModel:
         if pos is None or not self.has_travel_times or abs(target - pos) < 0.5:
             return IDLE, 0.0
         if target > pos:
-            return UP, (target - pos) / 100 * self.travel_up
-        return DOWN, (pos - target) / 100 * self.travel_down
+            return UP, (target - pos) / 100 * self._travel(UP)
+        return DOWN, (pos - target) / 100 * self._travel(DOWN)

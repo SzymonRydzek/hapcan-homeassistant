@@ -38,6 +38,9 @@ light:
 
 cover:
   - platform: hapcan
+    # how the motors stop mid-way: none | opposite | same (default none);
+    # a device can override it
+    stop_method: opposite
     devices:
       1:
         name: "Living room"
@@ -45,19 +48,26 @@ cover:
         group: 0x8A
         channel_up: 4
         channel_down: 3
-        # optional, enable position estimate:
+        # optional starting values; can be changed in the UI instead
         travel_time_up: 28      # seconds, fully closed -> fully open
         travel_time_down: 26    # seconds, fully open -> fully closed
-        # optional, how the motor stops mid-way: none | opposite | same
-        stop_method: opposite
 ```
 
 The numeric key of each device is part of its unique ID: do not renumber
 devices, or Home Assistant will create new entities.
 
-Position control (`set_cover_position`) is offered only when both travel times
-and a `stop_method` are set. Without travel times a blind is reported as open
-or closed after a full movement.
+### Travel times in the UI
+
+Every blind gets two settings entities, *<name> travel time up* and
+*<name> travel time down* (seconds, 0 = not set), in the entity list and on
+dashboards. A value set there is kept across restarts and overrides the YAML
+value.
+
+Stop and position control (`set_cover_position`) appear once both travel
+times are set and the stop method is not `none`. Without travel times a blind
+is reported as open or closed after a full movement; stop is not offered then,
+because a stop pulse sent to a blind that has already stopped would start it
+again.
 
 ## Development
 

@@ -1,17 +1,24 @@
 import pytest
 
-from hapcan.blind_model import DOWN, IDLE, UP, BlindModel
+from hapcan.blind_model import DOWN, FALLBACK_TRAVEL, IDLE, UP, BlindModel
 from hapcan.const import STOP_NONE, STOP_OPPOSITE, STOP_SAME
 
 
-def test_without_travel_times_position_jumps_to_end():
+def test_without_travel_times_settles_at_end_stop():
     m = BlindModel()
     assert m.position(0) is None and m.is_closed(0) is None
     m.start(DOWN, 0)
-    assert m.is_closed(0) is True
-    m.start(UP, 1)
-    assert m.is_closed(1) is False
+    assert m.direction == DOWN and m.is_closed(1) is False
+    assert m.tick(FALLBACK_TRAVEL + 1) is False
+    assert m.is_closed(FALLBACK_TRAVEL + 1) is True
+
+
+def test_without_travel_times_stop_leaves_it_partly_open():
+    m = BlindModel(stop_method=STOP_OPPOSITE)
+    m.handle_pulse(DOWN, 0)
+    m.handle_pulse(UP, 10)  # short press in the opposite direction stops it
     assert m.direction == IDLE
+    assert m.is_closed(10) is False
 
 
 def test_travel_and_end_stop():

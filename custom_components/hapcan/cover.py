@@ -22,9 +22,10 @@ from homeassistant.components.cover import (
     CoverEntity,
     CoverEntityFeature,
 )
-from homeassistant.const import CONF_ADDRESS, CONF_DEVICES, CONF_NAME
+from homeassistant.const import CONF_ADDRESS, CONF_DEVICES, CONF_NAME, Platform
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.discovery import async_load_platform
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -54,6 +55,7 @@ OWN_PULSE_WINDOW = 1.5
 UPDATE_INTERVAL = timedelta(seconds=1)
 
 CHANNEL = vol.All(vol.Coerce(int), vol.Range(min=1, max=8))
+STOP_METHODS = vol.In([STOP_NONE, STOP_OPPOSITE, STOP_SAME])
 
 DEVICE_SCHEMA = vol.Schema(
     {
@@ -64,14 +66,16 @@ DEVICE_SCHEMA = vol.Schema(
         vol.Required(CONF_HAPCAN_CHANNEL_DOWN): CHANNEL,
         vol.Optional(CONF_TRAVEL_TIME_UP): vol.All(vol.Coerce(float), vol.Range(min=1)),
         vol.Optional(CONF_TRAVEL_TIME_DOWN): vol.All(vol.Coerce(float), vol.Range(min=1)),
-        vol.Optional(CONF_STOP_METHOD, default=STOP_NONE): vol.In(
-            [STOP_NONE, STOP_OPPOSITE, STOP_SAME]
-        ),
+        vol.Optional(CONF_STOP_METHOD): STOP_METHODS,
     }
 )
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
-    {vol.Optional(CONF_DEVICES, default={}): {vol.Coerce(int): DEVICE_SCHEMA}},
+    {
+        # Default for every blind of this platform; a device may override it.
+        vol.Optional(CONF_STOP_METHOD, default=STOP_NONE): STOP_METHODS,
+        vol.Optional(CONF_DEVICES, default={}): {vol.Coerce(int): DEVICE_SCHEMA},
+    },
     extra=vol.ALLOW_EXTRA,
 )
 
@@ -82,9 +86,18 @@ async def async_setup_platform(
     async_add_entities: AddEntitiesCallback,
     discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
-    """Set up HAPCAN blinds from YAML."""
+    """Set up HAPCAN blinds from YAML, plus their travel-time settings."""
     hub = hass.data[DOMAIN]
-    async_add_entities(HapcanCover(hub, key, dev) for key, dev in config[CONF_DEVICES].items())
+    covers = [
+        HapcanCover(hub, key, {CONF_STOP_METHOD: config[CONF_STOP_METHOD], **dev})
+        for key, dev in config[CONF_DEVICES].items()
+    ]
+    async_add_entities(covers)
+    hass.async_create_task(
+        async_load_platform(
+            hass, Platform.NUMBER, DOMAIN, {"covers": [c.settings_key for c in covers]}, hub.hass_config
+        )
+    )
 
 
 class HapcanCover(HapcanEntity, CoverEntity, RestoreEntity):
@@ -103,17 +116,40 @@ class HapcanCover(HapcanEntity, CoverEntity, RestoreEntity):
             dev.get(CONF_TRAVEL_TIME_DOWN),
             dev[CONF_STOP_METHOD],
         )
-        features = CoverEntityFeature.OPEN | CoverEntityFeature.CLOSE
-        if self.model.can_stop:
-            features |= CoverEntityFeature.STOP
-            if self.model.has_travel_times:
-                features |= CoverEntityFeature.SET_POSITION
-        self._attr_supported_features = features
+        # Identifies this blind to its travel-time number entities.
+        self.settings_key = (key, dev[CONF_NAME], self._attr_unique_id)
+        hub.covers[self._attr_unique_id] = self
         self._own_pulse_until: dict[int, float] = {}
         self._unsub_tick = None
         self._unsub_target = None
 
     # --- state -----------------------------------------------------------
+
+    @property
+    def supported_features(self) -> CoverEntityFeature:
+        features = CoverEntityFeature.OPEN | CoverEntityFeature.CLOSE
+        if self._can_stop:
+            features |= CoverEntityFeature.STOP | CoverEntityFeature.SET_POSITION
+        return features
+
+    @property
+    def _can_stop(self) -> bool:
+        return self.model.can_stop and self.model.has_travel_times
+
+    @callback
+    def set_travel_time(self, direction: int, seconds: float | None) -> None:
+        """Apply a travel time changed in the UI (None or 0 = not set)."""
+        now = time.monotonic()
+        self.model.tick(now)
+        if self.model.direction != IDLE:
+            self.model.stop(now)  # keep the estimate consistent
+            self._stop_ticking()
+        if direction == UP:
+            self.model.travel_up = seconds or None
+        else:
+            self.model.travel_down = seconds or None
+        if self.hass is not None:
+            self.async_write_ha_state()
 
     @property
     def current_cover_position(self) -> int | None:
@@ -140,7 +176,7 @@ class HapcanCover(HapcanEntity, CoverEntity, RestoreEntity):
         if last is None:
             return
         pos = last.attributes.get("current_position")
-        if pos is not None and self.model.has_travel_times:
+        if pos is not None:
             self.model._position = float(pos)
         elif last.state in ("open", "closed"):
             self.model._position = 100.0 if last.state == "open" else 0.0
@@ -182,13 +218,12 @@ class HapcanCover(HapcanEntity, CoverEntity, RestoreEntity):
     async def _move(self, direction: int) -> None:
         now = time.monotonic()
         self.model.tick(now)
-        if self.model.direction == direction:
-            return
-        if self.model.direction != IDLE and self.model.stop_method == STOP_OPPOSITE:
-            # The opposite pulse would only stop it; stop first, then reverse.
+        timed = self.model.has_travel_times
+        if timed and self.model.direction == direction:
+            return  # already on its way
+        if timed and self.model.direction != IDLE and self.model.stop_method == STOP_OPPOSITE:
+            # An opposite pulse would only stop it: stop first, then reverse.
             await self._stop()
-        elif self.model.direction != IDLE and self.model.stop_method == STOP_SAME:
-            pass  # a pulse in the other direction reverses directly
         await self._pulse(self.channel_up if direction == UP else self.channel_down)
         self.model.start(direction, time.monotonic())
         self._start_ticking()
@@ -198,7 +233,9 @@ class HapcanCover(HapcanEntity, CoverEntity, RestoreEntity):
         self._cancel_target()
         now = time.monotonic()
         self.model.tick(now)
-        if self.model.direction == IDLE or not self.model.can_stop:
+        # Without travel times we cannot tell whether it is still moving, and
+        # a stop pulse sent to a stopped blind would start it again.
+        if self.model.direction == IDLE or not self._can_stop:
             return
         if self.model.stop_method == STOP_SAME:
             channel = self.channel_up if self.model.direction == UP else self.channel_down

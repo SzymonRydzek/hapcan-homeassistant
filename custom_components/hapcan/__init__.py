@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 import voluptuous as vol
 
@@ -37,6 +38,9 @@ class HapcanHub:
     def __init__(self, hass: HomeAssistant, host: str, port: int) -> None:
         self.hass = hass
         self.modules: set[tuple[int, int]] = set()
+        # Cover entities by unique ID, so their settings entities can reach them.
+        self.covers: dict[str, Any] = {}
+        self.hass_config: ConfigType = {}
         self.connection = HapcanConnection(
             host,
             port,
@@ -73,6 +77,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the HAPCAN connection from configuration.yaml."""
     conf = config[DOMAIN]
     hub = HapcanHub(hass, conf[CONF_HOST], conf[CONF_PORT])
+    hub.hass_config = config
     hass.data[DOMAIN] = hub
 
     task = hass.async_create_background_task(

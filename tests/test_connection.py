@@ -61,3 +61,14 @@ def test_send_when_disconnected_raises():
     conn = conn_mod.HapcanConnection("127.0.0.1", 1, lambda s: None, lambda c: None, set)
     with pytest.raises(ConnectionError):
         asyncio.run(conn.send(b"x"))
+
+
+def test_blind_frames_reach_blind_callback():
+    body = [0x30, 0x70, 0x0A, 0x20, 0xFF, 0xFF, 1, 0x00, 0x02, 0xFF, 0xFF, 0x00]
+    frame = bytes([0xAA, *body, sum(body) & 0xFF, 0xA5])
+    relays, blinds = [], []
+    conn = conn_mod.HapcanConnection(
+        "127.0.0.1", 1, relays.append, lambda c: None, set, on_blind_status=blinds.append
+    )
+    conn._dispatch(frame)
+    assert relays == [] and blinds[0].move == protocol.BLIND_MOVE_UP and blinds[0].position == 100

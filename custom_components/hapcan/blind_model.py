@@ -116,3 +116,13 @@ class BlindModel:
         if target > pos:
             return UP, (target - pos) / 100 * self._travel(UP)
         return DOWN, (pos - target) / 100 * self._travel(DOWN)
+
+
+def controller_should_stop(direction: int, position: float, target: float, step: float) -> bool:
+    """Whether a blind controller moving towards ``target`` should be stopped now.
+
+    ``step`` is how far the blind moved between the last two position reports;
+    stopping half a step early keeps the overshoot from polling small.
+    """
+    remaining = target - position if direction == UP else position - target
+    return remaining <= max(step / 2, 1.0)

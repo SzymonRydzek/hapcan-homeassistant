@@ -31,12 +31,14 @@ class HapcanConnection:
         on_relay_status: Callable[[protocol.RelayStatus], None],
         on_connection_change: Callable[[bool], None],
         modules: Callable[[], Iterable[tuple[int, int]]],
+        on_blind_status: Callable[[protocol.BlindStatus], None] | None = None,
     ) -> None:
         self.host = host
         self.port = port
         self._on_relay_status = on_relay_status
         self._on_connection_change = on_connection_change
         self._modules = modules
+        self._on_blind_status = on_blind_status
         self._reader: asyncio.StreamReader | None = None
         self._writer: asyncio.StreamWriter | None = None
         self._send_lock = asyncio.Lock()
@@ -123,6 +125,11 @@ class HapcanConnection:
             status = protocol.parse_relay_status(frame)
             _LOGGER.debug("Relay status %s", status)
             self._on_relay_status(status)
+        elif fid in (protocol.BLIND_FRAME_ID, protocol.BLIND_FRAME_RESP_ID):
+            blind = protocol.parse_blind_status(frame)
+            _LOGGER.debug("Blind status %s", blind)
+            if self._on_blind_status is not None:
+                self._on_blind_status(blind)
 
     async def send(self, frame: bytes) -> None:
         """Send one frame; raise ConnectionError when not connected."""

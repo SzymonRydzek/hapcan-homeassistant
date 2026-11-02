@@ -5,6 +5,7 @@ DEFAULT_PORT = 1004
 
 SIGNAL_RELAY_UPDATED = "hapcan.relay_updated"
 SIGNAL_CONNECTION = "hapcan.connection"
+SIGNAL_BLIND_UPDATED = "hapcan.blind_updated"
 
 CONF_HAPCAN_GROUP = "group"
 CONF_HAPCAN_CHANNEL = "channel"

@@ -22,6 +22,8 @@ STOP = 0xA5
 RELAY_FRAME_ID = "3020"  # relay status change broadcast
 RELAY_FRAME_RESP_ID = "3021"  # relay status as a response to a request
 BUTTON_FRAME_ID = "3010"
+BLIND_FRAME_ID = "3070"  # blind controller status change broadcast
+BLIND_FRAME_RESP_ID = "3071"  # blind controller status as a response to a request
 
 # Request frame types sent from the computer.
 STATUS_REQUEST = (0x10, 0x90)
@@ -34,6 +36,16 @@ TRANSMITTER_ID = (0x12, 0x23)
 RELAY_OFF = 0x00
 RELAY_ON = 0x01
 RELAY_TOGGLE = 0x02
+
+# Blind controller (UNIV 3.7.0.x) instructions (D0 of a control frame).
+BLIND_STOP = 0x00
+BLIND_UP = 0x03  # also reverses a blind running down, after 1 s
+BLIND_DOWN = 0x04  # also reverses a blind running up, after 1 s
+
+# Blind controller MOVE byte.
+BLIND_MOVE_STOPPED = 0x00
+BLIND_MOVE_DOWN = 0x01
+BLIND_MOVE_UP = 0x02
 
 
 def checksum(data: bytes | list[int]) -> int:
@@ -61,6 +73,18 @@ def relay_control_frame(command: int, channel: int, node: int, group: int) -> by
     return build_frame(CONTROL_REQUEST, relay_instruction(command, channel, node, group))
 
 
+def blind_control_frame(instruction: int, channel: int, node: int, group: int) -> bytes:
+    """Frame running one blind (channel 1-3) of a blind controller.
+
+    D0 instruction, D1 channel bit mask, D2/D3 module, D4 delay (0 = now).
+    """
+    if not 1 <= channel <= 3:
+        raise ValueError(f"blind channel out of range: {channel}")
+    return build_frame(
+        CONTROL_REQUEST, [instruction, 1 << (channel - 1), node, group, 0x00, 0x00, 0x00, 0x00]
+    )
+
+
 def status_request_frame(node: int, group: int) -> bytes:
     """Frame asking a module to report the state of all its channels.
 
@@ -81,6 +105,27 @@ class RelayStatus:
     instr1: int
     instr2: int
     timer: int
+
+
+@dataclass(frozen=True)
+class BlindStatus:
+    """A blind controller channel state reported on the bus."""
+
+    node: int
+    group: int
+    channel: int
+    raw_position: int  # 0x00 fully open ... 0xFF fully closed
+    move: int  # BLIND_MOVE_*
+
+    @property
+    def position(self) -> int:
+        """Position in Home Assistant terms: 100 open, 0 closed."""
+        return raw_to_position(self.raw_position)
+
+
+def raw_to_position(raw: int) -> int:
+    """Blind controller position byte to 0-100 (100 = open)."""
+    return round((255 - raw) * 100 / 255)
 
 
 def frame_id(frame: bytes) -> str:
@@ -110,6 +155,17 @@ def parse_relay_status(frame: bytes) -> RelayStatus:
         instr1=frame[10],
         instr2=frame[11],
         timer=frame[12],
+    )
+
+
+def parse_blind_status(frame: bytes) -> BlindStatus:
+    """Decode a blind controller status frame (``3070`` or ``3071``)."""
+    return BlindStatus(
+        node=frame[3],
+        group=frame[4],
+        channel=frame[7],
+        raw_position=frame[8],
+        move=frame[9],
     )
 
 

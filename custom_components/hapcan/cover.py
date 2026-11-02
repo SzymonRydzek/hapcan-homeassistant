@@ -1,6 +1,13 @@
-"""Blinds driven by two monostable HAPCAN relay channels (up and down).
+"""HAPCAN blinds.
 
-Each command is a short pulse on one channel, which is what the motor
+Two kinds of device are supported:
+
+* ``channel_up`` / ``channel_down``: a blind driven by two monostable relay
+  channels (this module).
+* ``channel``: one channel of a HAPCAN blind controller (see
+  ``blind_controller.py``).
+
+For relay-driven blinds each command is a short pulse on one channel, which is what the motor
 controller (e.g. Mobilus contact inputs) expects. The blind does not report
 its position, so it is estimated from travel times when they are configured.
 Pulses from wall buttons are seen on the bus and update the estimate too.
@@ -33,7 +40,9 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import protocol
 from .blind_model import DOWN, IDLE, UP, BlindModel
+from .blind_controller import HapcanBlindController
 from .const import (
+    CONF_HAPCAN_CHANNEL,
     CONF_HAPCAN_CHANNEL_DOWN,
     CONF_HAPCAN_CHANNEL_UP,
     CONF_HAPCAN_GROUP,
@@ -57,7 +66,16 @@ UPDATE_INTERVAL = timedelta(seconds=1)
 CHANNEL = vol.All(vol.Coerce(int), vol.Range(min=1, max=8))
 STOP_METHODS = vol.In([STOP_NONE, STOP_OPPOSITE, STOP_SAME])
 
-DEVICE_SCHEMA = vol.Schema(
+CONTROLLER_DEVICE_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_NAME): cv.string,
+        vol.Required(CONF_ADDRESS): cv.positive_int,
+        vol.Required(CONF_HAPCAN_GROUP): cv.positive_int,
+        vol.Required(CONF_HAPCAN_CHANNEL): vol.All(vol.Coerce(int), vol.Range(min=1, max=3)),
+    }
+)
+
+RELAY_DEVICE_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_NAME): cv.string,
         vol.Required(CONF_ADDRESS): cv.positive_int,
@@ -69,6 +87,16 @@ DEVICE_SCHEMA = vol.Schema(
         vol.Optional(CONF_STOP_METHOD): STOP_METHODS,
     }
 )
+
+
+def _device_schema(value: Any) -> dict:
+    """A blind controller channel if ``channel`` is given, else a relay pair."""
+    if isinstance(value, dict) and CONF_HAPCAN_CHANNEL in value:
+        return CONTROLLER_DEVICE_SCHEMA(value)
+    return RELAY_DEVICE_SCHEMA(value)
+
+
+DEVICE_SCHEMA = _device_schema
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
@@ -91,8 +119,16 @@ async def async_setup_platform(
     covers = [
         HapcanCover(hub, key, {CONF_STOP_METHOD: config[CONF_STOP_METHOD], **dev})
         for key, dev in config[CONF_DEVICES].items()
+        if CONF_HAPCAN_CHANNEL not in dev
     ]
-    async_add_entities(covers)
+    controllers = [
+        HapcanBlindController(hub, key, dev)
+        for key, dev in config[CONF_DEVICES].items()
+        if CONF_HAPCAN_CHANNEL in dev
+    ]
+    async_add_entities([*covers, *controllers])
+    if not covers:
+        return
     hass.async_create_task(
         async_load_platform(
             hass, Platform.NUMBER, DOMAIN, {"covers": [c.settings_key for c in covers]}, hub.hass_config

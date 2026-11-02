@@ -14,8 +14,14 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.typing import ConfigType
 
 from .connection import HapcanConnection
-from .const import DEFAULT_PORT, DOMAIN, SIGNAL_CONNECTION, SIGNAL_RELAY_UPDATED
-from .protocol import RelayStatus, status_request_frame
+from .const import (
+    DEFAULT_PORT,
+    DOMAIN,
+    SIGNAL_BLIND_UPDATED,
+    SIGNAL_CONNECTION,
+    SIGNAL_RELAY_UPDATED,
+)
+from .protocol import BlindStatus, RelayStatus, status_request_frame
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,6 +53,7 @@ class HapcanHub:
             on_relay_status=self._relay_status,
             on_connection_change=self._connection_change,
             modules=lambda: self.modules,
+            on_blind_status=self._blind_status,
         )
 
     @property
@@ -56,6 +63,10 @@ class HapcanHub:
     @callback
     def _relay_status(self, status: RelayStatus) -> None:
         async_dispatcher_send(self.hass, SIGNAL_RELAY_UPDATED, status)
+
+    @callback
+    def _blind_status(self, status: BlindStatus) -> None:
+        async_dispatcher_send(self.hass, SIGNAL_BLIND_UPDATED, status)
 
     @callback
     def _connection_change(self, connected: bool) -> None:

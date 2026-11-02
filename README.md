@@ -7,6 +7,9 @@ Supported:
 
 - **Lights** on bistable relay modules (one relay channel per light). State
   follows the bus, including changes made with wall buttons.
+- **Blinds on a HAPCAN blind controller** (UNIV 3.7.0.x, up to 3 per
+  module): open, close, stop and go-to-position, with the position the module
+  estimates itself. No travel times needed in Home Assistant.
 - **Blinds** on monostable relay modules, driven by short pulses on an up and
   a down channel (e.g. Mobilus motors with contact inputs). Optional travel
   times give a position estimate; wall-button pulses update it too.
@@ -53,8 +56,31 @@ cover:
         travel_time_down: 26    # seconds, fully open -> fully closed
 ```
 
-The numeric key of each device is part of its unique ID: do not renumber
-devices, or Home Assistant will create new entities.
+### Blind controller (UNIV 3.7.0.x)
+
+Give `channel` (1-3) instead of `channel_up` / `channel_down`; both kinds can
+be mixed under the same `cover:` platform:
+
+```yaml
+cover:
+  - platform: hapcan
+    devices:
+      20:
+        name: "Bedroom"
+        address: 0x0a     # module number
+        group: 0x20       # module group
+        channel: 1        # blind 1-3 of the controller
+```
+
+The controller works out the blind position from the running time set in
+HAPCAN Programmer, so set that correctly there. While a blind moves, Home
+Assistant asks the module for its position once a second; a requested
+position is reached by stopping the motor there, typically within a few
+percent. Wall buttons wired to the controller are reflected automatically.
+
+The numeric key of each relay-driven blind and light is part of its unique ID:
+do not renumber them, or Home Assistant will create new entities. Blind
+controller entities are identified by module and channel instead.
 
 ### Travel times in the UI
 
